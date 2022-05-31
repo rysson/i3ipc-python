@@ -44,6 +44,8 @@ class Connection:
     :param auto_reconnect: Whether to attempt to reconnect if the connection to
         the socket is broken when i3 restarts.
     :type auto_reconnect: bool
+    :param display: A custom DISPLAY to determinate the socket_path.
+    :type display: str
 
     :raises Exception: If the connection to i3 cannot be established.
     """
@@ -53,7 +55,7 @@ class Connection:
     _struct_header = '=%dsII' % len(_MAGIC.encode('utf-8'))
     _struct_header_size = struct.calcsize(_struct_header)
 
-    def __init__(self, socket_path=None, auto_reconnect=False):
+    def __init__(self, socket_path=None, auto_reconnect=False, display=None):
 
         if socket_path:
             logger.info('using user provided socket path: %s', socket_path)
@@ -74,6 +76,7 @@ class Connection:
         self._auto_reconnect = auto_reconnect
         self._quitting = False
         self._synchronizer = None
+        self._display = display
 
     def _find_socket_path(self):
         socket_path = os.environ.get("I3SOCK")
@@ -87,7 +90,7 @@ class Connection:
             return socket_path
 
         try:
-            disp = Xlib.display.Display()
+            disp = Xlib.display.Display(self._display)
             root = disp.screen().root
             i3atom = disp.intern_atom("I3_SOCKET_PATH")
             prop = root.get_full_property(i3atom, Xlib.X.AnyPropertyType)
