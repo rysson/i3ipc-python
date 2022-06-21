@@ -59,24 +59,30 @@ class Connection:
 
         if socket_path:
             logger.info('using user provided socket path: %s', socket_path)
-        else:
-            socket_path = self._find_socket_path()
-
-        if not socket_path:
-            raise Exception('Failed to retrieve the i3 or sway IPC socket path')
 
         self.subscriptions = 0
         self._pubsub = PubSub(self)
+        self._display = display
         self._socket_path = socket_path
+        self._connection_socket_path = self._get_socket_path()
         self._cmd_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._cmd_socket.connect(self._socket_path)
+        self._cmd_socket.connect(self._connection_socket_path)
         self._cmd_lock = Lock()
         self._sub_socket = None
         self._sub_lock = Lock()
         self._auto_reconnect = auto_reconnect
         self._quitting = False
         self._synchronizer = None
-        self._display = display
+
+    def _get_socket_path(self):
+        """Returns a current socket path."""
+        if self._socket_path:
+            socket_path = self._socket_path
+        else:
+            socket_path = self._find_socket_path()
+        if not socket_path:
+            raise Exception('Failed to retrieve the i3 or sway IPC socket path')
+        return socket_path
 
     def _find_socket_path(self):
         socket_path = os.environ.get("I3SOCK")
@@ -134,7 +140,7 @@ class Connection:
 
         :rtype: str
         """
-        return self._socket_path
+        return self._connection_socket_path
 
     @property
     def auto_reconnect(self) -> bool:
@@ -195,14 +201,13 @@ class Connection:
 
     def _wait_for_socket(self):
         # for the auto_reconnect feature only
-        socket_path_exists = False
         for tries in range(0, 500):
-            socket_path_exists = os.path.exists(self._socket_path)
-            if socket_path_exists:
-                break
+            self._connection_socket_path = self._get_socket_path()
+            if os.path.exists(self._connection_socket_path):
+                return True
             time.sleep(0.001)
 
-        return socket_path_exists
+        return False
 
     def _message(self, message_type, payload):
         try:
@@ -213,13 +218,13 @@ class Connection:
                 raise e
 
             logger.info('got a connection error, reconnecting', exc_info=e)
-            # XXX: can the socket path change between restarts?
+            # The socket path can change between restarts.
             if not self._wait_for_socket():
                 logger.info('could not reconnect')
                 raise e
 
             self._cmd_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self._cmd_socket.connect(self._socket_path)
+            self._cmd_socket.connect(self._connection_socket_path)
             return self._ipc_send(self._cmd_socket, message_type, payload)
         finally:
             self._cmd_lock.release()
@@ -475,7 +480,7 @@ class Connection:
 
     def _event_socket_setup(self):
         self._sub_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._sub_socket.connect(self._socket_path)
+        self._sub_socket.connect(self._connection_socket_path)
 
         self._subscribe(self.subscriptions)
 
